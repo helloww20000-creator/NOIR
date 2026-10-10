@@ -8,6 +8,11 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCallback
+import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
@@ -42,6 +47,10 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var scanning = false
     private var face: FaceView? = null
+    private var gatt: BluetoothGatt? = null
+    private var connectedAddress: String? = null
+    private var connectionState = "Not connected"
+    private var gattDetails = "Tap a device to connect and inspect services."
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -105,8 +114,14 @@ class MainActivity : Activity() {
                 action(if(scanning) "Scanning…" else "Scan Bluetooth LE","Search nearby devices") { scan() }
                 action("Stop scan","Stop Bluetooth discovery") { stopScan() }
                 if(found.isEmpty()) body.addView(card("NO RESULTS","No devices discovered yet","Turn Bluetooth on, grant permission and keep the watch nearby."))
-                found.forEach { (address,name) -> body.addView(card(name,address,"Advertisement discovered; not connected")) }
-                body.addView(card("SAFETY","No unknown writes","NOIR does not send undocumented commands or flash watch firmware."))
+                found.forEach { (address,name) ->
+                    val item = card("BLE DEVICE", name, address + if (address == connectedAddress) " • connected" else " • tap to connect")
+                    item.setOnClickListener { connectToDevice(address) }
+                    body.addView(item)
+                }
+                body.addView(card("CONNECTION", connectionState, gattDetails))
+                if (gatt != null) action("Disconnect", "Close BLE connection") { disconnectGatt() }
+                body.addView(card("SAFETY","Read-only inspection","No undocumented commands are sent."))
             }
             "Face Lab" -> {
                 body.addView(txt("Face Studio",24,white,true))
@@ -160,6 +175,50 @@ class MainActivity : Activity() {
         }
         override fun onScanFailed(code:Int){runOnUiThread{scanning=false;toast("BLE scan failed: $code");render()}}
     }
+    private fun connectToDevice(address: String) {
+        if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) { requestPermissionsIfNeeded(); toast("Grant Nearby devices permission and retry"); return }
+        try {
+            stopScan(); try { gatt?.close() } catch (_: Exception) {}; gatt = null
+            connectedAddress = address; connectionState = "Connecting…"; gattDetails = "Waiting for device response."; render()
+            val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+            val device = adapter.getRemoteDevice(address)
+            gatt = if (Build.VERSION.SDK_INT >= 23) device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE) else device.connectGatt(this, false, gattCallback)
+        } catch (e: Exception) { connectionState = "Connection failed"; gattDetails = e.message ?: "Bluetooth error"; render() }
+    }
+    private val gattCallback = object : BluetoothGattCallback() {
+        override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+            runOnUiThread {
+                if (status != BluetoothGatt.GATT_SUCCESS) { connectionState = "Connection error: " + status; gattDetails = "Connection rejected or dropped."; g.close(); if (gatt === g) gatt = null; render(); return@runOnUiThread }
+                if (newState == BluetoothProfile.STATE_CONNECTED) { connectionState = "Connected; discovering services…"; render(); if (!g.discoverServices()) { connectionState = "Service discovery failed to start"; render() } }
+                else if (newState == BluetoothProfile.STATE_DISCONNECTED) { connectionState = "Disconnected"; if (gatt === g) { g.close(); gatt = null }; render() }
+            }
+        }
+        override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+            runOnUiThread {
+                if (status != BluetoothGatt.GATT_SUCCESS) { gattDetails = "Service discovery failed: " + status }
+                else {
+                    val lines = mutableListOf<String>()
+                    for (service in g.services) {
+                        lines.add("SERVICE " + service.uuid.toString())
+                        for (ch in service.characteristics) {
+                            val p = ch.properties; val flags = mutableListOf<String>()
+                            if (p and BluetoothGattCharacteristic.PROPERTY_READ != 0) flags.add("READ")
+                            if (p and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) flags.add("WRITE")
+                            if (p and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) flags.add("WRITE_NO_RESPONSE")
+                            if (p and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0) flags.add("NOTIFY")
+                            if (p and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0) flags.add("INDICATE")
+                            lines.add("  " + ch.uuid.toString() + " [" + flags.joinToString(", ") + "]")
+                        }
+                    }
+                    gattDetails = if (lines.isEmpty()) "No services reported" else lines.joinToString("\\n")
+                    connectionState = "Connected • " + g.services.size + " services found"
+                }
+                render()
+            }
+        }
+    }
+    private fun disconnectGatt() { try { gatt?.disconnect() } catch (_: Exception) {}; try { gatt?.close() } catch (_: Exception) {}; gatt = null; connectedAddress = null; connectionState = "Not connected"; gattDetails = "Tap a device to connect and inspect services."; render() }
+
     private fun stopScan() {
         try {
             if(Build.VERSION.SDK_INT<31 || checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN)==PackageManager.PERMISSION_GRANTED)
@@ -187,7 +246,7 @@ class MainActivity : Activity() {
         layoutParams=LinearLayout.LayoutParams(0,-2,1f).apply{setMargins(3,5,3,5)}
     }
     private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_SHORT).show()
-    override fun onDestroy(){stopScan();super.onDestroy()}
+    override fun onDestroy(){stopScan();try{gatt?.disconnect();gatt?.close()}catch(_:Exception){};gatt=null;super.onDestroy()}
 
     inner class FaceView(ctx:Context):View(ctx) {
         var mode=2

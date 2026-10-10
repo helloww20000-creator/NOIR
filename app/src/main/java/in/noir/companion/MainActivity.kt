@@ -274,7 +274,7 @@ class MainActivity : Activity() {
                 }
                 if (diagnosticLines.size > 2000) diagnosticLines.removeAt(0)
                 gattDetails = "Notification captured • ${characteristic.uuid} • $hex"
-                if (page == "Device") render()
+                if (page == "Device" || page == "Home" || page == "Health") render()
             }
         }
         @Suppress("DEPRECATION")

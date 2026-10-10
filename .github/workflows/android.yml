@@ -19,9 +19,13 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
       - name: Accept Android SDK licenses
-        run: yes | "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" --sdk_root="$ANDROID_HOME" --licenses || true
+        shell: bash
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" --sdk_root="$ANDROID_HOME" --licenses || true
       - name: Install required SDK components
-        run: "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+        shell: bash
+        run: |
+          "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
       - name: Build debug APK
         run: gradle assembleDebug
       - name: Upload APK

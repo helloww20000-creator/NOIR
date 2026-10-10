@@ -15,10 +15,14 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK packages
+        uses: android-actions/setup-android@v3
+      - name: Install required SDK components
+        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
       - name: Build debug APK
         run: gradle assembleDebug
-      - uses: actions/upload-artifact@v4
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
           name: NOIR-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk

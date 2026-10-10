@@ -3,14 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 android {
-    namespace = "in.noir.companion"
+    namespace = "com.noir.companion"
     compileSdk = 35
     defaultConfig {
-        applicationId = "in.noir.companion"
+        applicationId = "com.noir.companion"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

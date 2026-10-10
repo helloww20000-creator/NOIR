@@ -5,43 +5,33 @@ on:
     branches: [ main, master ]
 permissions:
   contents: read
+concurrency:
+  group: noir-android-build-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      ANDROID_HOME: /usr/local/lib/android/sdk
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
-      - name: Locate Android SDK manager
-        shell: bash
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          find "$ANDROID_HOME" -type f -name sdkmanager -print
-          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n 1)"
-          if [ -z "$SDKMANAGER" ]; then
-            echo "sdkmanager not found in cmdline-tools" >&2
-            exit 1
-          fi
-          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
-      - name: Accept Android SDK licenses
-        shell: bash
-        run: |
-          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses || true
-      - name: Install required SDK components
-        shell: bash
-        run: |
-          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android SDK components
+        run: sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
       - name: Build debug APK
-        run: gradle assembleDebug
-      - name: Upload APK
+        run: gradle assembleDebug --stacktrace
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: NOIR-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
           retention-days: 14

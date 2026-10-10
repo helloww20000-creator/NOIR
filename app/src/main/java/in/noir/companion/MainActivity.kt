@@ -72,7 +72,7 @@ class MainActivity : Activity() {
         scroll.addView(body)
         root.addView(scroll, LinearLayout.LayoutParams(-1,0,1f))
         val nav = LinearLayout(this).apply { gravity = Gravity.CENTER; setPadding(3,6,3,10); setBackgroundColor(Color.rgb(13,15,20)) }
-        listOf("Home","Device","Face Lab","Health","Settings").forEach { item ->
+        listOf("Home","Device","Face Lab","Health","Alerts","Settings").forEach { item ->
             nav.addView(TextView(this).apply {
                 text=item; textSize=10f; gravity=Gravity.CENTER; setTextColor(if(page==item) accent else muted); setPadding(5,12,5,12)
                 setOnClickListener { page=item; render() }
@@ -151,6 +151,21 @@ class MainActivity : Activity() {
                     } else toast("No saved preset yet")
                 }
                 body.addView(card("EXPORT","Local preset only","Preset saving works locally. Device-compatible face packaging and transfer require reverse-engineering the NSW-309 protocol."))
+            }
+            "Alerts" -> {
+                body.addView(txt("Notification bridge",24,white,true))
+                body.addView(txt("Phone notifications • optional permission",12,muted))
+                action("Enable notification access","Open Android system settings") {
+                    try { startActivity(android.content.Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")) } catch (_: Exception) { toast("Open Android Settings and search Notification access") }
+                }
+                action("Clear mirrored notifications","Delete locally stored notification previews") { getSharedPreferences("noir_notifications", MODE_PRIVATE).edit().remove("items").apply(); render() }
+                val arr = try { org.json.JSONArray(getSharedPreferences("noir_notifications", MODE_PRIVATE).getString("items", "[]")) } catch (_: Exception) { org.json.JSONArray() }
+                if (arr.length() == 0) body.addView(card("INBOX","No notifications captured","Enable NOIR under Android Notification access. Watch delivery still needs protocol support."))
+                for (i in 0 until arr.length()) {
+                    val item = arr.optJSONObject(i) ?: continue
+                    body.addView(card(item.optString("package", "App"), item.optString("title", "Notification"), item.optString("text", "")))
+                }
+                body.addView(card("WATCH DELIVERY","Not yet connected","Phone notification capture works locally. Forwarding to NSW-309 requires a verified BLE command protocol."))
             }
             "Health" -> {
                 body.addView(txt("Health & activity",24,white,true))

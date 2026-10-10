@@ -170,7 +170,7 @@ class MainActivity : Activity() {
         orientation=LinearLayout.VERTICAL;setPadding(13,10,13,12)
         background=android.graphics.drawable.GradientDrawable().apply{setColor(panel);cornerRadius=20f}
         addView(txt(k,9,accent,true));addView(txt(title,15,white,true));addView(txt(desc,12,muted))
-        val lp=LinearLayout.LayoutParams(0,-2,1f);lp.setMargins(3,5,3,7);layoutParams=lp
+        val lp=LinearLayout.LayoutParams(-1,-2);lp.setMargins(3,5,3,7);layoutParams=lp
     }
     private fun action(title:String,desc:String,run:()->Unit) {
         val c=card("ACTION",title,desc); c.setOnClickListener{run()};body.addView(c)
@@ -189,6 +189,23 @@ class MainActivity : Activity() {
         var theme=0
         var customText=false
         private val p=Paint(3)
+        private val clockTick = object : Runnable {
+            override fun run() {
+                if (isAttachedToWindow) {
+                    invalidate()
+                    handler.postDelayed(this, 1000)
+                }
+            }
+        }
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            handler.removeCallbacks(clockTick)
+            handler.post(clockTick)
+        }
+        override fun onDetachedFromWindow() {
+            handler.removeCallbacks(clockTick)
+            super.onDetachedFromWindow()
+        }
         override fun onDraw(c:Canvas) {
             super.onDraw(c)
             c.drawColor(bg)
@@ -223,7 +240,6 @@ class MainActivity : Activity() {
             }
             p.color=muted;p.textSize=radius*.06f;c.drawText("WR • 05 ATM",cx,cy+radius*.72f,p)
             if(customText){p.color=Color.YELLOW;p.textSize=radius*.08f;c.drawText("CUSTOM TEXT",cx,cy+radius*.48f,p)}
-            handler.postDelayed({if(isAttachedToWindow)invalidate()},1000)
         }
         private fun hand(c:Canvas,x:Float,y:Float,len:Float,degrees:Double,stroke:Float,color:Int){
             val a=Math.toRadians(degrees-90);p.color=color;p.strokeWidth=stroke;p.strokeCap=Paint.Cap.ROUND;p.style=Paint.Style.STROKE

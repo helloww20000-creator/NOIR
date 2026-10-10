@@ -59,6 +59,9 @@ class MainActivity : Activity() {
     private var enablingNotifications = false
     private var pendingReport = ""
     private var activeDiagnosticGatt: BluetoothGatt? = null
+    private var watchBatteryText = "Not synced"
+    private var heartRateText = "Waiting for sensor"
+    private var heartRateCharacteristic: BluetoothGattCharacteristic? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -106,11 +109,11 @@ class MainActivity : Activity() {
                 body.addView(txt("Your day at a glance",20,white,true))
                 val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
                 row.addView(card("STEPS","—","Waiting for verified watch sync"),LinearLayout.LayoutParams(0,-2,1f))
-                row.addView(card("HEART RATE","— bpm","Waiting for verified watch sync"),LinearLayout.LayoutParams(0,-2,1f))
+                row.addView(card("HEART RATE",if (heartRateText.toIntOrNull() != null) "$heartRateText bpm" else "— bpm",heartRateText),LinearLayout.LayoutParams(0,-2,1f))
                 body.addView(row)
                 val row2=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
                 row2.addView(card("SLEEP","—","Waiting for verified watch sync"),LinearLayout.LayoutParams(0,-2,1f))
-                row2.addView(card("BATTERY","—%","Waiting for verified watch sync"),LinearLayout.LayoutParams(0,-2,1f))
+                row2.addView(card("BATTERY",if (watchBatteryText.toIntOrNull() != null) "$watchBatteryText%" else "—%",watchBatteryText),LinearLayout.LayoutParams(0,-2,1f))
                 body.addView(row2)
                 body.addView(card("STATUS","NOIR foundation","Native UI and BLE discovery. Health sync, notifications and watch-face upload need exact-model protocol work."))
                 action("Find your watch","Bluetooth LE discovery") { page="Device"; render(); scan() }
@@ -129,6 +132,8 @@ class MainActivity : Activity() {
                 }
                 body.addView(card("CONNECTION", connectionState, gattDetails))
                 if (gatt != null) {
+                    action("Read watch battery", "Read the standard Bluetooth battery level, if exposed by the watch") { readWatchBattery() }
+                    action("Monitor heart rate", "Subscribe to the standard Bluetooth heart-rate measurement, if exposed") { monitorHeartRate() }
                     action("Read characteristics", "Read only characteristics that explicitly allow READ") { readReadableCharacteristics() }
                     action("Monitor notifications", "Subscribe to supported NOTIFY characteristics") { startNotificationMonitor() }
                     action("Stop diagnostics", "Stop queued reads and notification subscriptions") { stopDiagnostics() }
@@ -245,6 +250,11 @@ class MainActivity : Activity() {
             runOnUiThread {
                 if (gatt !== g) return@runOnUiThread
                 diagnosticLines.add("READ ${characteristic.uuid}: $hex")
+                if (status == BluetoothGatt.GATT_SUCCESS && characteristic.uuid == UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb") && value != null && value.isNotEmpty()) {
+                    watchBatteryText = (value[0].toInt() and 0xFF).coerceIn(0, 100).toString()
+                    gattDetails = "Battery level: $watchBatteryText%"
+                    if (page == "Home" || page == "Device") render()
+                }
                 if (readingDiagnostics) readNextCharacteristic(g)
             }
         }
@@ -256,6 +266,12 @@ class MainActivity : Activity() {
                 if (gatt !== g) return@runOnUiThread
                 val entry = "NOTIFY ${characteristic.uuid}: $hex"
                 diagnosticLines.add(entry)
+                if (characteristic.uuid == UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb") && value.isNotEmpty()) {
+                    val flags = value[0].toInt() and 0xFF
+                    val is16Bit = (flags and 0x01) != 0
+                    val bpm = if (is16Bit && value.size >= 3) ((value[1].toInt() and 0xFF) or ((value[2].toInt() and 0xFF) shl 8)) else if (value.size >= 2) value[1].toInt() and 0xFF else -1
+                    if (bpm in 1..250) heartRateText = bpm.toString()
+                }
                 if (diagnosticLines.size > 2000) diagnosticLines.removeAt(0)
                 gattDetails = "Notification captured • ${characteristic.uuid} • $hex"
                 if (page == "Device") render()
@@ -300,6 +316,49 @@ class MainActivity : Activity() {
             }
         }
     }
+    @Suppress("DEPRECATION")
+    private fun readWatchBattery() {
+        val current = gatt
+        if (current == null) { toast("Connect to the watch first"); return }
+        val ch = current.getService(UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb"))
+            ?.getCharacteristic(UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb"))
+        if (ch == null || ch.properties and BluetoothGattCharacteristic.PROPERTY_READ == 0) {
+            watchBatteryText = "Not exposed"
+            toast("This watch does not expose standard battery reads")
+            render()
+            return
+        }
+        val started = try { current.readCharacteristic(ch) } catch (_: Exception) { false }
+        if (started) toast("Reading watch battery…") else toast("Battery read could not start; stop other diagnostics and retry")
+    }
+
+    @Suppress("DEPRECATION")
+    private fun monitorHeartRate() {
+        val current = gatt
+        if (current == null) { toast("Connect to the watch first"); return }
+        val ch = current.getService(UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb"))
+            ?.getCharacteristic(UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb"))
+        if (ch == null || ch.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY == 0) {
+            heartRateText = "Not exposed"
+            toast("This watch does not expose standard heart-rate notifications")
+            render()
+            return
+        }
+        val cccd = ch.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
+        if (cccd == null) { toast("Heart-rate notification descriptor is missing"); return }
+        try {
+            if (!current.setCharacteristicNotification(ch, true)) { toast("Android rejected heart-rate subscription"); return }
+            cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            if (current.writeDescriptor(cccd)) {
+                heartRateCharacteristic = ch
+                heartRateText = "Waiting for sensor"
+                diagnosticLines.add("Requested standard heart-rate notifications")
+                toast("Heart-rate monitor enabled; wait for watch data")
+            } else toast("Could not start heart-rate subscription")
+        } catch (e: Exception) { toast("Heart-rate setup failed: ${e.message}") }
+        render()
+    }
+
     @Suppress("DEPRECATION")
     private fun readReadableCharacteristics() {
         val current = gatt

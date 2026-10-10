@@ -135,7 +135,22 @@ class MainActivity : Activity() {
                 listOf("METAL","CARBON","GOLD").forEachIndexed { i,s -> r2.addView(btn(s){face?.theme=i;face?.invalidate()},LinearLayout.LayoutParams(0,-2,1f)) }
                 body.addView(r2)
                 action("Toggle custom text","Show or hide preview label") { face?.customText=!(face?.customText ?: false); face?.invalidate() }
-                body.addView(card("EXPORT","Preview only","Exact NSW-309 face format and transfer protocol are not verified yet."))
+                action("Save face preset","Save the current preview design on this phone") {
+                    val v = face
+                    if (v != null) {
+                        getSharedPreferences("noir_faces", MODE_PRIVATE).edit().putInt("mode", v.mode).putInt("theme", v.theme).putBoolean("customText", v.customText).apply()
+                        toast("Face preset saved on this phone")
+                    }
+                }
+                action("Load saved preset","Restore your last saved preview design") {
+                    val prefs = getSharedPreferences("noir_faces", MODE_PRIVATE)
+                    val v = face
+                    if (v != null && prefs.contains("mode")) {
+                        v.mode = prefs.getInt("mode", 2); v.theme = prefs.getInt("theme", 0); v.customText = prefs.getBoolean("customText", false); v.invalidate()
+                        toast("Saved preset loaded")
+                    } else toast("No saved preset yet")
+                }
+                body.addView(card("EXPORT","Local preset only","Preset saving works locally. Device-compatible face packaging and transfer require reverse-engineering the NSW-309 protocol."))
             }
             "Health" -> {
                 body.addView(txt("Health & activity",24,white,true))

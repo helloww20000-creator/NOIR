@@ -1,4 +1,4 @@
-package in.noir.companion
+package com.noir.companion
 
 import android.Manifest
 import android.app.Activity

@@ -8,6 +8,10 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothGattDescriptor
+import android.content.Intent
+import android.net.Uri
+import java.io.OutputStreamWriter
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
@@ -46,6 +50,13 @@ class MainActivity : Activity() {
     private var connectedAddress: String? = null
     private var connectionState = "Not connected"
     private var gattDetails = "Tap a device to connect and inspect services."
+    private val diagnosticLines = mutableListOf<String>()
+    private val readableQueue = java.util.ArrayDeque<BluetoothGattCharacteristic>()
+    private val notifyQueue = java.util.ArrayDeque<BluetoothGattCharacteristic>()
+    private var readingDiagnostics = false
+    private var enablingNotifications = false
+    private var pendingReport = ""
+    private var activeDiagnosticGatt: BluetoothGatt? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -115,6 +126,13 @@ class MainActivity : Activity() {
                     body.addView(item)
                 }
                 body.addView(card("CONNECTION", connectionState, gattDetails))
+                if (gatt != null) {
+                    action("Read characteristics", "Read only characteristics that explicitly allow READ") { readReadableCharacteristics() }
+                    action("Monitor notifications", "Subscribe to supported NOTIFY characteristics") { startNotificationMonitor() }
+                    action("Stop diagnostics", "Stop queued reads and notification subscriptions") { stopDiagnostics() }
+                    action("Export diagnostic report", "Save UUIDs, properties, values, and notification samples") { exportDiagnosticReport() }
+                    body.addView(card("DIAGNOSTICS", "${diagnosticLines.size} log entries", "Read and notification results stay on this phone until you export the report."))
+                }
                 if (gatt != null) action("Disconnect", "Close BLE connection") { disconnectGatt() }
                 body.addView(card("SAFETY","Read-only inspection","No undocumented commands are sent."))
             }
@@ -218,13 +236,50 @@ class MainActivity : Activity() {
                 else if (newState == BluetoothProfile.STATE_DISCONNECTED) { connectionState = "Disconnected"; if (gatt === g) { g.close(); gatt = null }; render() }
             }
         }
+        @Suppress("DEPRECATION")
+        override fun onCharacteristicRead(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+            val value = if (status == BluetoothGatt.GATT_SUCCESS) characteristic.value else null
+            val hex = value?.joinToString(" ") { "%02X".format(it.toInt() and 0xFF) } ?: "(read failed: status $status)"
+            runOnUiThread {
+                if (gatt !== g) return@runOnUiThread
+                diagnosticLines.add("READ ${characteristic.uuid}: $hex")
+                if (readingDiagnostics) readNextCharacteristic(g)
+            }
+        }
+        @Suppress("DEPRECATION")
+        override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+            val value = characteristic.value ?: byteArrayOf()
+            val hex = value.joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }
+            runOnUiThread {
+                if (gatt !== g) return@runOnUiThread
+                val entry = "NOTIFY ${characteristic.uuid}: $hex"
+                diagnosticLines.add(entry)
+                if (diagnosticLines.size > 2000) diagnosticLines.removeAt(0)
+                gattDetails = "Notification captured • ${characteristic.uuid} • $hex"
+                if (page == "Device") render()
+            }
+        }
+        @Suppress("DEPRECATION")
+        override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            runOnUiThread {
+                if (gatt !== g) return@runOnUiThread
+                diagnosticLines.add("CCCD ${descriptor.characteristic.uuid}: status $status")
+                if (enablingNotifications) enableNextNotification(g)
+            }
+        }
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
             runOnUiThread {
                 if (status != BluetoothGatt.GATT_SUCCESS) { gattDetails = "Service discovery failed: " + status }
                 else {
                     val lines = mutableListOf<String>()
+                    diagnosticLines.clear()
+                    diagnosticLines.add("NOIR BLE diagnostic report")
+                    diagnosticLines.add("Device address: ${connectedAddress ?: "unknown"}")
+                    diagnosticLines.add("Captured: " + SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(Date()))
+                    diagnosticLines.add("Service count: ${g.services.size}")
                     for (service in g.services) {
                         lines.add("SERVICE " + service.uuid.toString())
+                        diagnosticLines.add("SERVICE " + service.uuid.toString())
                         for (ch in service.characteristics) {
                             val p = ch.properties; val flags = mutableListOf<String>()
                             if (p and BluetoothGattCharacteristic.PROPERTY_READ != 0) flags.add("READ")
@@ -233,6 +288,7 @@ class MainActivity : Activity() {
                             if (p and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0) flags.add("NOTIFY")
                             if (p and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0) flags.add("INDICATE")
                             lines.add("  " + ch.uuid.toString() + " [" + flags.joinToString(", ") + "]")
+                            diagnosticLines.add("  " + ch.uuid.toString() + " [" + flags.joinToString(", ") + "]")
                         }
                     }
                     gattDetails = if (lines.isEmpty()) "No services reported" else lines.joinToString("\\n")
@@ -242,7 +298,139 @@ class MainActivity : Activity() {
             }
         }
     }
-    private fun disconnectGatt() { try { gatt?.disconnect() } catch (_: Exception) {}; try { gatt?.close() } catch (_: Exception) {}; gatt = null; connectedAddress = null; connectionState = "Not connected"; gattDetails = "Tap a device to connect and inspect services."; render() }
+    @Suppress("DEPRECATION")
+    private fun readReadableCharacteristics() {
+        val current = gatt
+        if (current == null || connectionState.startsWith("Not connected") || connectionState == "Disconnected") {
+            toast("Connect to the watch first"); return
+        }
+        readableQueue.clear()
+        for (service in current.services) for (ch in service.characteristics) {
+            if (ch.properties and BluetoothGattCharacteristic.PROPERTY_READ != 0) readableQueue.add(ch)
+        }
+        if (readableQueue.isEmpty()) { toast("No readable characteristics found"); return }
+        readingDiagnostics = true
+        diagnosticLines.add("Starting read-only inspection: ${readableQueue.size} readable characteristics")
+        readNextCharacteristic(current)
+        toast("Reading characteristics safely")
+    }
+
+    @Suppress("DEPRECATION")
+    private fun readNextCharacteristic(current: BluetoothGatt) {
+        if (!readingDiagnostics || gatt !== current) return
+        val next = if (readableQueue.isEmpty()) null else readableQueue.removeFirst()
+        if (next == null) {
+            readingDiagnostics = false
+            diagnosticLines.add("Read-only inspection complete")
+            gattDetails = "Read-only inspection complete • ${diagnosticLines.size} log entries"
+            if (page == "Device") render()
+            return
+        }
+        val started = try { current.readCharacteristic(next) } catch (_: Exception) { false }
+        if (!started) {
+            diagnosticLines.add("READ ${next.uuid}: request could not be started")
+            handler.postDelayed({ readNextCharacteristic(current) }, 250)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun startNotificationMonitor() {
+        val current = gatt
+        if (current == null) { toast("Connect to the watch first"); return }
+        notifyQueue.clear()
+        for (service in current.services) for (ch in service.characteristics) {
+            if (ch.properties and (BluetoothGattCharacteristic.PROPERTY_NOTIFY or BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0 &&
+                ch.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")) != null) {
+                notifyQueue.add(ch)
+            }
+        }
+        if (notifyQueue.isEmpty()) { toast("No notification characteristics with CCCD descriptors found"); return }
+        enablingNotifications = true
+        diagnosticLines.add("Starting notification subscriptions for ${notifyQueue.size} characteristics")
+        enableNextNotification(current)
+        toast("Enabling supported notifications")
+    }
+
+    @Suppress("DEPRECATION")
+    private fun enableNextNotification(current: BluetoothGatt) {
+        if (!enablingNotifications || gatt !== current) return
+        val ch = if (notifyQueue.isEmpty()) null else notifyQueue.removeFirst()
+        if (ch == null) {
+            enablingNotifications = false
+            diagnosticLines.add("Notification subscription setup complete; waiting for device data")
+            gattDetails = "Notification monitoring active"
+            if (page == "Device") render()
+            return
+        }
+        try {
+            if (!current.setCharacteristicNotification(ch, true)) {
+                diagnosticLines.add("NOTIFY ${ch.uuid}: Android subscription rejected")
+                handler.postDelayed({ enableNextNotification(current) }, 150)
+                return
+            }
+            val descriptor = ch.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
+            if (descriptor == null) {
+                diagnosticLines.add("NOTIFY ${ch.uuid}: CCCD descriptor missing")
+                handler.postDelayed({ enableNextNotification(current) }, 150)
+                return
+            }
+            descriptor.value = if (ch.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0)
+                BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+            if (!current.writeDescriptor(descriptor)) {
+                diagnosticLines.add("CCCD ${ch.uuid}: descriptor write could not be started")
+                handler.postDelayed({ enableNextNotification(current) }, 150)
+            }
+        } catch (e: Exception) {
+            diagnosticLines.add("NOTIFY ${ch.uuid}: ${e.message ?: "setup error"}")
+            handler.postDelayed({ enableNextNotification(current) }, 150)
+        }
+    }
+
+    private fun stopDiagnostics() {
+        readingDiagnostics = false
+        enablingNotifications = false
+        readableQueue.clear()
+        notifyQueue.clear()
+        diagnosticLines.add("Diagnostics stopped by user")
+        toast("Queued diagnostics stopped")
+        if (page == "Device") render()
+    }
+
+    private fun exportDiagnosticReport() {
+        val report = buildString {
+            appendLine("NOIR NSW-309 BLE Diagnostic Report")
+            appendLine("Generated: " + SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(Date()))
+            appendLine("Device address: ${connectedAddress ?: "unknown"}")
+            appendLine("Connection: $connectionState")
+            appendLine("Services:")
+            appendLine(gattDetails.replace("\\n", "\n"))
+            appendLine()
+            diagnosticLines.forEach { appendLine(it) }
+        }
+        pendingReport = report
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TITLE, "NOIR-NSW309-diagnostics.txt")
+        }
+        try { startActivityForResult(intent, 814) } catch (e: Exception) { toast("Could not open file saver: ${e.message}") }
+    }
+
+    @Deprecated("Uses document picker result callback for broad Android compatibility")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 814 && resultCode == Activity.RESULT_OK) {
+            val uri = data?.data ?: return
+            try {
+                contentResolver.openOutputStream(uri)?.use { stream ->
+                    OutputStreamWriter(stream, Charsets.UTF_8).use { it.write(pendingReport) }
+                }
+                toast("Diagnostic report exported")
+            } catch (e: Exception) { toast("Export failed: ${e.message}") }
+        }
+    }
+
+    private fun disconnectGatt() { stopDiagnostics(); try { gatt?.disconnect() } catch (_: Exception) {}; try { gatt?.close() } catch (_: Exception) {}; gatt = null; connectedAddress = null; connectionState = "Not connected"; gattDetails = "Tap a device to connect and inspect services."; render() }
 
     private fun stopScan() {
         try {

@@ -54,6 +54,7 @@ class MainActivity : Activity() {
     private val diagnosticLines = mutableListOf<String>()
     private val readableQueue = java.util.ArrayDeque<BluetoothGattCharacteristic>()
     private val notifyQueue = java.util.ArrayDeque<BluetoothGattCharacteristic>()
+    private val subscribedCharacteristics = mutableListOf<BluetoothGattCharacteristic>()
     private var readingDiagnostics = false
     private var enablingNotifications = false
     private var pendingReport = ""
@@ -375,6 +376,7 @@ class MainActivity : Activity() {
                 handler.postDelayed({ enableNextNotification(current) }, 150)
                 return
             }
+            if (subscribedCharacteristics.none { it.uuid == ch.uuid }) subscribedCharacteristics.add(ch)
             descriptor.value = if (ch.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0)
                 BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
             if (!current.writeDescriptor(descriptor)) {
@@ -392,6 +394,13 @@ class MainActivity : Activity() {
         enablingNotifications = false
         readableQueue.clear()
         notifyQueue.clear()
+        val current = gatt
+        if (current != null) {
+            subscribedCharacteristics.forEach { ch ->
+                try { current.setCharacteristicNotification(ch, false) } catch (_: Exception) {}
+            }
+        }
+        subscribedCharacteristics.clear()
         diagnosticLines.add("Diagnostics stopped by user")
         toast("Queued diagnostics stopped")
         if (page == "Device") render()

@@ -18,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.noir.companion.core.BleDeviceRepository
 import com.noir.companion.core.NoirEventStore
+import com.noir.companion.core.MoYoungProtocol
 
 /**
  * Functional first-pass control surface. The UI deliberately exposes real transport events,
@@ -65,6 +66,7 @@ class MainActivity : AppCompatActivity() {
         controls.addView(actionButton("Scan", ::requestPermissionsAndScan))
         controls.addView(actionButton("Stop", { ble.stopScan() }))
         controls.addView(actionButton("Disconnect", { ble.disconnect() }))
+        controls.addView(actionButton("Battery", { ble.read(MoYoungProtocol.BATTERY_SERVICE, MoYoungProtocol.BATTERY_LEVEL) }))
         controls.addView(actionButton("Export log", ::exportLog))
         logText = TextView(this).apply {
             text = "Events will appear here."

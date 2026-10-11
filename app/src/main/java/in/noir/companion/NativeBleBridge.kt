@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
+import com.noir.companion.core.WatchFaceUploadGuard
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -115,6 +116,9 @@ class NativeBleBridge(private val context: Context, private val emitJs: (String)
             val g = gatt ?: throw IllegalStateException("Not connected")
             val c = g.getService(uuid(serviceId))?.getCharacteristic(uuid(charId)) ?: throw IllegalStateException("Characteristic not found")
             val bytes = hex.chunked(2).filter { it.length == 2 }.map { it.toInt(16).toByte() }.toByteArray()
+            if (WatchFaceUploadGuard.shouldBlock(serviceId, charId, bytes)) {
+                throw IllegalStateException("Watch-face upload is disabled until its transfer and acknowledgement behavior are verified on NSW-309.")
+            }
             if (Build.VERSION.SDK_INT >= 33) {
                 val status = g.writeCharacteristic(c, bytes, if (withoutResponse) BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE else BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
                 if (status != BluetoothGatt.GATT_SUCCESS) throw IllegalStateException("Write rejected: " + status)

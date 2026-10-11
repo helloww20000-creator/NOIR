@@ -42,9 +42,6 @@ jobs:
           cd /tmp/dafit-canvas
           npm ci
           npm run build
-          mkdir -p "$GITHUB_WORKSPACE/app/src/main/assets/dafit"
-          cp -R dist/. "$GITHUB_WORKSPACE/app/src/main/assets/dafit/"
-          cp "$GITHUB_WORKSPACE/app/src/main/assets/noir-ble-shim.js" "$GITHUB_WORKSPACE/app/src/main/assets/dafit/noir-ble-shim.js"
           python3 - <<'PY'
           from pathlib import Path
           p = Path("/tmp/dafit-canvas/dist/index.html")
@@ -53,8 +50,10 @@ jobs:
           if tag not in html:
               html = html.replace('</head>', tag + '</head>')
           p.write_text(html)
-          Path("$GITHUB_WORKSPACE/app/src/main/assets/dafit/index.html").write_text(html)
           PY
+          mkdir -p "$GITHUB_WORKSPACE/app/src/main/assets/dafit"
+          cp -R dist/. "$GITHUB_WORKSPACE/app/src/main/assets/dafit/"
+          cp "$GITHUB_WORKSPACE/app/src/main/assets/noir-ble-shim.js" "$GITHUB_WORKSPACE/app/src/main/assets/dafit/noir-ble-shim.js"
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
       - name: Upload debug APK

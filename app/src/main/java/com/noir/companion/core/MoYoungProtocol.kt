@@ -48,21 +48,60 @@ object MoYoungProtocol {
     }
 
     /** The site's time payload uses big-endian epoch seconds and fixed GMT+8 metadata. */
+    /** DaFit/Gadgetbridge wall-clock payload: u32 BE seconds, timezone metadata 8. */
     fun buildSyncTimePayload(nowMillis: Long = System.currentTimeMillis()): ByteArray {
         val c = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }
         val localAsUtc = java.time.LocalDateTime.of(
-            c.get(java.util.Calendar.YEAR),
-            c.get(java.util.Calendar.MONTH) + 1,
-            c.get(java.util.Calendar.DAY_OF_MONTH),
-            c.get(java.util.Calendar.HOUR_OF_DAY),
-            c.get(java.util.Calendar.MINUTE),
-            c.get(java.util.Calendar.SECOND)
+            c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1,
+            c.get(java.util.Calendar.DAY_OF_MONTH), c.get(java.util.Calendar.HOUR_OF_DAY),
+            c.get(java.util.Calendar.MINUTE), c.get(java.util.Calendar.SECOND)
         ).toEpochSecond(java.time.ZoneOffset.UTC)
         val seconds = (localAsUtc - 8L * 3600L).toInt()
         return byteArrayOf(
             (seconds ushr 24).toByte(), (seconds ushr 16).toByte(),
             (seconds ushr 8).toByte(), seconds.toByte(), 8
         )
+    }
+
+    enum class Weather(val wireCode: Int) {
+        CLOUDY(0), FOGGY(1), OVERCAST(2), RAINY(3), SNOWY(4),
+        SUNNY(5), SANDSTORM(6), HAZE(7)
+    }
+
+    /** Weather: PM2.5 flag, condition, signed Celsius, UTF-16BE city. */
+    fun buildWeatherPayload(condition: Weather, tempC: Int, city: String): ByteArray {
+        val cityBytes = ByteArray(city.length * 2)
+        city.forEachIndexed { i, ch ->
+            cityBytes[i * 2] = (ch.code ushr 8).toByte()
+            cityBytes[i * 2 + 1] = ch.code.toByte()
+        }
+        val temp = tempC.coerceIn(-128, 127)
+        return byteArrayOf(0, condition.wireCode.toByte(), temp.toByte()) + cityBytes
+    }
+
+    /** Outgoing setting integers use big-endian in the supplied implementation. */
+    fun u32be(value: Long): ByteArray = byteArrayOf(
+        (value ushr 24).toByte(), (value ushr 16).toByte(),
+        (value ushr 8).toByte(), value.toByte()
+    )
+
+    /** Query response integers use little-endian in the supplied implementation. */
+    fun readU32le(bytes: ByteArray): Long? {
+        if (bytes.size < 4) return null
+        return (bytes[0].toLong() and 0xff) or
+            ((bytes[1].toLong() and 0xff) shl 8) or
+            ((bytes[2].toLong() and 0xff) shl 16) or
+            ((bytes[3].toLong() and 0xff) shl 24)
+    }
+
+    /** Complete control packet for FEE2. */
+    fun buildCommand(opcode: Int, payload: ByteArray = byteArrayOf()): ByteArray {
+        val total = payload.size + 5
+        return byteArrayOf(
+            0xFE.toByte(), 0xEA.toByte(),
+            (0x20 + ((total shr 8) and 0xff)).toByte(),
+            (total and 0xff).toByte(), opcode.toByte()
+        ) + payload
     }
 
     fun buildNotificationPayload(type: Int, message: String): ByteArray {

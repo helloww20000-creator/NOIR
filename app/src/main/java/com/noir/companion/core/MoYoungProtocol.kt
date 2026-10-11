@@ -31,23 +31,9 @@ object MoYoungProtocol {
     const val CMD_QUERY_STEP_GOAL = 0x26
     const val CMD_SET_TIME_SYSTEM = 0x17
     const val CMD_SET_METRIC_SYSTEM = 0x1A
-    const val CMD_SET_LANGUAGE = 0x1B
+    const val CMD_SET_DEVICE_LANGUAGE = 0x1B
     const val CMD_SET_WATCH_FACE = 0x19
 
-    /** FE EA packet framing copied from the supplied site source. */
-    fun buildCommand(opcode: Int, payload: ByteArray = byteArrayOf()): ByteArray {
-        val total = payload.size + 5
-        return ByteArray(total).also {
-            it[0] = 0xFE.toByte()
-            it[1] = 0xEA.toByte()
-            it[2] = (0x20 + ((total shr 8) and 0xFF)).toByte()
-            it[3] = (total and 0xFF).toByte()
-            it[4] = opcode.toByte()
-            payload.copyInto(it, 5)
-        }
-    }
-
-    /** The site's time payload uses big-endian epoch seconds and fixed GMT+8 metadata. */
     /** DaFit/Gadgetbridge wall-clock payload: u32 BE seconds, timezone metadata 8. */
     fun buildSyncTimePayload(nowMillis: Long = System.currentTimeMillis()): ByteArray {
         val c = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }

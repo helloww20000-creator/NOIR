@@ -19,6 +19,9 @@ class NativeBleBridge(private val context: Context, private val emitJs: (String)
     private val adapter get() = manager.adapter
     private var gatt: BluetoothGatt? = null
     private var scannerCallback: ScanCallback? = null
+    private var connectRequestId: String? = null
+    private var connectedName: String = "Unknown device"
+    private var connectedAddress: String = ""
     private val main = Handler(Looper.getMainLooper())
     private fun uuid(value: String): UUID = UUID.fromString(if (value.length == 4) "0000${value}-0000-1000-8000-00805f9b34fb" else value)
     private fun jsCall(name: String, json: JSONObject) { emitJs("window.__noirBleEvent && window.__noirBleEvent(" + JSONObject.quote(name) + "," + json.toString() + ");") }
@@ -56,19 +59,29 @@ class NativeBleBridge(private val context: Context, private val emitJs: (String)
     @JavascriptInterface fun connect(id: String, address: String) {
         try {
             val device = adapter?.getRemoteDevice(address) ?: throw IllegalStateException("Device unavailable")
+            connectRequestId = id
+            connectedAddress = address
+            connectedName = device.name ?: "Unknown device"
             gatt?.close()
             gatt = device.connectGatt(context, false, object : BluetoothGattCallback() {
                 override fun onConnectionStateChange(g: BluetoothGatt, status: Int, state: Int) {
                     if (state == BluetoothProfile.STATE_CONNECTED) {
                         gatt = g
                         g.discoverServices()
-                        resolve(id, JSONObject().put("connected", true).put("id", address).put("name", device.name ?: "Unknown device"))
-                        jsCall("connected", JSONObject().put("id", address).put("name", device.name ?: "Unknown device"))
+                        jsCall("connected", JSONObject().put("id", address).put("name", connectedName))
                     } else if (state == BluetoothProfile.STATE_DISCONNECTED) {
                         jsCall("disconnected", JSONObject().put("id", address).put("status", status))
                     }
                 }
-                override fun onServicesDiscovered(g: BluetoothGatt, status: Int) { jsCall("services", JSONObject().put("status", status)) }
+                override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+                    jsCall("services", JSONObject().put("status", status))
+                    val request = connectRequestId
+                    if (request != null) {
+                        connectRequestId = null
+                        if (status == BluetoothGatt.GATT_SUCCESS) resolve(request, JSONObject().put("connected", true).put("id", connectedAddress).put("name", connectedName))
+                        else resolve(request, JSONObject().put("error", "Service discovery failed: " + status))
+                    }
+                }
                 @Deprecated("Android 13")
                 override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
                     jsCall("read", JSONObject().put("uuid", c.uuid.toString()).put("hex", c.value?.joinToString("") { "%02x".format(it) } ?: "").put("status", status))

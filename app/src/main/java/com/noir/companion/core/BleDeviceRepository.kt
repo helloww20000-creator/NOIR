@@ -142,6 +142,40 @@ class BleDeviceRepository(context: Context) {
         else emit("gatt", "Read requested: $characteristicUuid")
     }
 
+    /** Send one MoYoung V2 command packet through FEE2 (write without response). */
+    @SuppressLint("MissingPermission")
+    fun sendMoYoungCommand(opcode: Int, payload: ByteArray = byteArrayOf()) {
+        val currentGatt = gatt ?: return emit("error", "Not connected")
+        val characteristic = currentGatt.getService(MoYoungProtocol.SERVICE_FEEA)
+            ?.getCharacteristic(MoYoungProtocol.FEE2)
+            ?: return emit("error", "MoYoung FEE2 command characteristic not found")
+        if (characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE == 0) {
+            emit("error", "FEE2 does not support write without response"); return
+        }
+        val packet = MoYoungProtocol.buildCommand(opcode, payload)
+        if (Build.VERSION.SDK_INT >= 33) {
+            val result = currentGatt.writeCharacteristic(
+                characteristic, packet, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            )
+            if (result != BluetoothGatt.GATT_SUCCESS) emit("error", "Command write rejected: status=$result")
+            else emit("command", "Sent opcode=0x${opcode.toString(16)} bytes=${MoYoungProtocol.formatHex(packet)}")
+        } else {
+            @Suppress("DEPRECATION")
+            characteristic.value = packet
+            @Suppress("DEPRECATION")
+            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            @Suppress("DEPRECATION")
+            val accepted = currentGatt.writeCharacteristic(characteristic)
+            if (!accepted) emit("error", "Command write rejected")
+            else emit("command", "Sent opcode=0x${opcode.toString(16)} bytes=${MoYoungProtocol.formatHex(packet)}")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun subscribeToMoYoungReplies() {
+        enableNotifications(MoYoungProtocol.SERVICE_FEEA, MoYoungProtocol.FEE3)
+    }
+
     @SuppressLint("MissingPermission")
     fun enableNotifications(serviceUuid: UUID, characteristicUuid: UUID) {
         val currentGatt = gatt ?: return emit("error", "Not connected")

@@ -1,0 +1,4 @@
+upstream=https://github.com/e-labInnovations/DaFit-Canvas
+commit=1d5fc3f810fc7e3be62aef3f40318f825e4fbc61
+audited=2026-10-11
+note=Upstream source has no LICENSE file; source code is fetched at this immutable commit only during the build and is not copied into this public repository.

@@ -2,7 +2,7 @@ name: Build NOIR Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master, fresh-rebuild ]
+    branches: [ main, master, fresh-rebuild, 'manus/**' ]
 permissions:
   contents: read
 concurrency:
@@ -33,29 +33,43 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-      - name: Fetch and build DaFit Canvas source
+          node-version: '22.17.1'
+      - name: Fetch pinned DaFit Canvas source and build frontend
         run: |
-          git clone --depth 1 https://github.com/e-labInnovations/DaFit-Canvas.git /tmp/dafit-canvas
-          cd /tmp/dafit-canvas
-          rm -rf node_modules package-lock.json
-          npm install --include=dev --legacy-peer-deps --no-audit --no-fund
+          source_dir=/tmp/dafit-canvas
+          commit=1d5fc3f810fc7e3be62aef3f40318f825e4fbc61
+          mkdir -p "$source_dir"
+          git -C "$source_dir" init
+          git -C "$source_dir" remote add origin https://github.com/e-labInnovations/DaFit-Canvas.git
+          git -C "$source_dir" fetch --depth 1 origin "$commit"
+          git -C "$source_dir" checkout --detach FETCH_HEAD
+          cp "$GITHUB_WORKSPACE/vendor/dafit-canvas/package-lock.json" "$source_dir/package-lock.json"
+          cd "$source_dir"
+          npm ci --include=dev --legacy-peer-deps --no-audit --no-fund
           npm ls vite @types/node @types/web-bluetooth typescript
           npm run build
+      - name: Bundle frontend and native BLE adapter
+        run: |
+          mkdir -p app/src/main/assets/dafit
+          cp -R /tmp/dafit-canvas/dist/. app/src/main/assets/dafit/
           python3 - <<'PY'
           from pathlib import Path
-          p = Path("/tmp/dafit-canvas/dist/index.html")
+          p = Path("app/src/main/assets/dafit/index.html")
           html = p.read_text()
           tag = '<script src="./noir-ble-shim.js"></script>'
           if tag not in html:
-              html = html.replace('</head>', tag + '</head>')
+              if "</head>" not in html:
+                  raise SystemExit("Built DaFit Canvas index.html has no </head> insertion point")
+              html = html.replace("</head>", tag + "</head>", 1)
           p.write_text(html)
           PY
-          mkdir -p "$GITHUB_WORKSPACE/app/src/main/assets/dafit"
-          cp -R dist/. "$GITHUB_WORKSPACE/app/src/main/assets/dafit/"
-          cp "$GITHUB_WORKSPACE/app/src/main/assets/noir-ble-shim.js" "$GITHUB_WORKSPACE/app/src/main/assets/dafit/noir-ble-shim.js"
+          cp app/src/main/assets/noir-ble-shim.js app/src/main/assets/dafit/noir-ble-shim.js
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
+      - name: Verify bundled website in APK
+        run: |
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/dafit/index.html|assets/dafit/noir-ble-shim.js'
+          test -s app/build/outputs/apk/debug/app-debug.apk
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:

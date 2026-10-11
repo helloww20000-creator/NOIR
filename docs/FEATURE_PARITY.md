@@ -59,6 +59,7 @@
 - The branch push initially required the owner to grant GitHub workflow permission; after that, branch [`manus/complete-dafit-rebuild`](https://github.com/helloww20000-creator/NOIR/tree/manus/complete-dafit-rebuild) was pushed and CI completed successfully.
 - No Android emulator/ADB or physical NSW-309 connection was available; no app launch or watch behavior has been tested.
 - Package ID is `com.noir.companion.dev` on the rebuild branch, so it installs alongside the prior `com.noir.companion` package rather than updating it. Debug APK is not a production-signed release.
+- Debug-signing certificate fingerprints differed across observed CI runs (`2898bdf6…` for run 38125157301 versus `820cafe7…` for run 38125571246). A later CI APK may therefore fail in-place update. If Android reports a signature mismatch, uninstall only the old `com.noir.companion.dev` instance (this deletes its local data), then install the new APK; do not uninstall `com.noir.companion`.
 
 ## Physical device test checklist (required before declaring watch features supported)
 

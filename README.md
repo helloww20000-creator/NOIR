@@ -23,6 +23,12 @@ cp -R /tmp/dafit-canvas/dist/. app/src/main/assets/dafit/
 
 Then apply the shim injection step from `.github/workflows/android.yml` and run `gradle assembleDebug`.
 
+## Install
+
+Download the `NOIR-debug-apk` artifact from the successful workflow run and unzip `app-debug.apk`. On Android, open the APK and allow installs from that download source if prompted. The package `com.noir.companion.dev` installs alongside the existing `com.noir.companion`; it does not replace that app.
+
+CI debug signing keys can differ between workflow runs. If an update of a previously installed `com.noir.companion.dev` is rejected because its signature differs, uninstall **only** that development-package app before installing the new APK; uninstalling it erases its local app data. Do not uninstall `com.noir.companion` to install this build. A stable release signing key is not configured.
+
 ## Important compatibility limits
 
 - `com.noir.companion.dev` is the development package ID; the APK installs alongside `com.noir.companion` and does not update it.

@@ -33,12 +33,14 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
       - name: Fetch and build DaFit Canvas source
         run: |
           git clone --depth 1 https://github.com/e-labInnovations/DaFit-Canvas.git /tmp/dafit-canvas
           cd /tmp/dafit-canvas
-          npm install --legacy-peer-deps --no-audit --no-fund
+          rm -rf node_modules package-lock.json
+          npm install --include=dev --legacy-peer-deps --no-audit --no-fund
+          npm ls vite @types/node @types/web-bluetooth typescript
           npm run build
           python3 - <<'PY'
           from pathlib import Path

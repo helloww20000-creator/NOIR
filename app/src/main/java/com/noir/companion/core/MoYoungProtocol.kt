@@ -18,6 +18,63 @@ object MoYoungProtocol {
     val BATTERY_LEVEL = UUID.fromString("00002A19-0000-1000-8000-00805F9B34FB")
     val DEVICE_INFO_SERVICE = UUID.fromString("0000180A-0000-1000-8000-00805F9B34FB")
 
+    // Command IDs transcribed from the supplied DaFit Canvas source.
+    const val CMD_FIND_MY_WATCH = 0x61
+    const val CMD_FIND_MY_PHONE = 0x62
+    const val CMD_TRIGGER_HEART_RATE = 0x6D
+    const val CMD_TRIGGER_BLOOD_PRESSURE = 0x69
+    const val CMD_TRIGGER_SPO2 = 0x6B
+    const val CMD_SEND_MESSAGE = 0x41
+    const val CMD_SYNC_TIME = 0x31
+    const val CMD_SET_WEATHER_TODAY = 0x43
+    const val CMD_SET_STEP_GOAL = 0x16
+    const val CMD_QUERY_STEP_GOAL = 0x26
+    const val CMD_SET_TIME_SYSTEM = 0x17
+    const val CMD_SET_METRIC_SYSTEM = 0x1A
+    const val CMD_SET_LANGUAGE = 0x1B
+    const val CMD_SET_WATCH_FACE = 0x19
+
+    /** FE EA packet framing copied from the supplied site source. */
+    fun buildCommand(opcode: Int, payload: ByteArray = byteArrayOf()): ByteArray {
+        val total = payload.size + 5
+        return ByteArray(total).also {
+            it[0] = 0xFE.toByte()
+            it[1] = 0xEA.toByte()
+            it[2] = (0x20 + ((total shr 8) and 0xFF)).toByte()
+            it[3] = (total and 0xFF).toByte()
+            it[4] = opcode.toByte()
+            payload.copyInto(it, 5)
+        }
+    }
+
+    /** The site's time payload uses big-endian epoch seconds and fixed GMT+8 metadata. */
+    fun buildSyncTimePayload(nowMillis: Long = System.currentTimeMillis()): ByteArray {
+        val c = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }
+        val localAsUtc = java.time.LocalDateTime.of(
+            c.get(java.util.Calendar.YEAR),
+            c.get(java.util.Calendar.MONTH) + 1,
+            c.get(java.util.Calendar.DAY_OF_MONTH),
+            c.get(java.util.Calendar.HOUR_OF_DAY),
+            c.get(java.util.Calendar.MINUTE),
+            c.get(java.util.Calendar.SECOND)
+        ).toEpochSecond(java.time.ZoneOffset.UTC)
+        val seconds = (localAsUtc - 8L * 3600L).toInt()
+        return byteArrayOf(
+            (seconds ushr 24).toByte(), (seconds ushr 16).toByte(),
+            (seconds ushr 8).toByte(), seconds.toByte(), 8
+        )
+    }
+
+    fun buildNotificationPayload(type: Int, message: String): ByteArray {
+        val text = message.toByteArray(Charsets.UTF_8)
+        return byteArrayOf(type.toByte()) + text
+    }
+
+    fun buildStepGoalPayload(goal: Long): ByteArray = byteArrayOf(
+        (goal ushr 24).toByte(), (goal ushr 16).toByte(),
+        (goal ushr 8).toByte(), goal.toByte()
+    )
+
     data class Measurement(val kind: String, val value: Int?, val unit: String, val rawHex: String, val valid: Boolean, val note: String? = null)
 
     /** Common 0xFF sentinel readings are explicitly treated as unavailable. */

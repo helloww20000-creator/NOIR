@@ -64,6 +64,8 @@ jobs:
           p.write_text(html)
           PY
           cp app/src/main/assets/noir-ble-shim.js app/src/main/assets/dafit/noir-ble-shim.js
+      - name: Run protocol and safety unit tests
+        run: gradle testDebugUnitTest --stacktrace
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
       - name: Verify bundled website in APK

@@ -6,7 +6,7 @@
   function call(method,...args){return new Promise((resolve,reject)=>{const id=String(++seq);pending.set(id,{resolve,reject});try{window.NoirNativeBLE[method](id,...args)}catch(e){pending.delete(id);reject(e)}})}
   function on(name,fn){(listeners[name]||(listeners[name]=[])).push(fn)}
   const norm=s=>String(s).toLowerCase().replace(/^0x/,'');
-  function full(s){s=norm(s);return s.length===4?'0000'+s+'-0000-1000-8000-00805f9b34fb':s}
+  function full(s){if(typeof s==='number')s=s.toString(16);s=norm(s);return s.length===4?'0000'+s+'-0000-1000-8000-00805f9b34fb':s}
   class Characteristic extends EventTarget{
     constructor(service,uuid,props){super();this.service=service;this.uuid=full(uuid);this.properties={read:!!(props&2),write:!!(props&8),writeWithoutResponse:!!(props&4),notify:!!(props&16),indicate:!!(props&32)};this.value=null;this._lastRead=null;
       on('notify',d=>{if(full(d.uuid)===this.uuid){this.value=hexBuffer(d.hex);this.dispatchEvent(new Event('characteristicvaluechanged'))}});

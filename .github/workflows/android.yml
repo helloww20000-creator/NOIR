@@ -48,13 +48,17 @@ jobs:
           npm ci --include=dev --legacy-peer-deps --no-audit --no-fund
           npm ls vite @types/node @types/web-bluetooth typescript
           npm run build -- --base=./
+          if grep -Eq '(src|href)="/assets/' /tmp/dafit-canvas/dist/index.html; then
+            echo "Production HTML still contains root-absolute asset URLs; Android asset loading would fail."
+            exit 1
+          fi
       - name: Bundle frontend and native BLE adapter
         run: |
-          mkdir -p app/src/main/assets/dafit
-          cp -R /tmp/dafit-canvas/dist/. app/src/main/assets/dafit/
+          mkdir -p app/src/main/assets
+          cp -R /tmp/dafit-canvas/dist/. app/src/main/assets/
           python3 - <<'PY'
           from pathlib import Path
-          p = Path("app/src/main/assets/dafit/index.html")
+          p = Path("app/src/main/assets/index.html")
           html = p.read_text()
           tag = '<script src="./noir-ble-shim.js"></script>'
           if tag not in html:
@@ -63,15 +67,18 @@ jobs:
               html = html.replace("</head>", tag + "</head>", 1)
           p.write_text(html)
           PY
-          cp app/src/main/assets/noir-ble-shim.js app/src/main/assets/dafit/noir-ble-shim.js
       - name: Run protocol and safety unit tests
         run: gradle testDebugUnitTest --stacktrace
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
       - name: Verify bundled website in APK
         run: |
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/dafit/index.html|assets/dafit/noir-ble-shim.js'
-          test -s app/build/outputs/apk/debug/app-debug.apk
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          unzip -l "$apk" | grep -E 'assets/index.html|assets/noir-ble-shim.js|assets/assets/index-'
+          unzip -p "$apk" assets/index.html | grep -q '<div id="root"></div>'
+          unzip -p "$apk" assets/index.html | grep -q 'src="./assets/index-'
+          unzip -p "$apk" assets/index.html | grep -q 'src="./noir-ble-shim.js"'
+          test -s "$apk"
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:

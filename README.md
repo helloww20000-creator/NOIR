@@ -15,13 +15,13 @@ For a local build, use JDK 17, Android SDK platform 35/build tools 35.0.0, Gradl
 ```sh
 cd /tmp/dafit-canvas
 npm ci --include=dev --legacy-peer-deps --no-audit --no-fund
-npm run build
+npm run build -- --base=./
 cd /path/to/NOIR
-mkdir -p app/src/main/assets/dafit
-cp -R /tmp/dafit-canvas/dist/. app/src/main/assets/dafit/
+mkdir -p app/src/main/assets
+cp -R /tmp/dafit-canvas/dist/. app/src/main/assets/
 ```
 
-Then apply the shim injection step from `.github/workflows/android.yml` and run `gradle assembleDebug`.
+Then apply the shim injection step from `.github/workflows/android.yml` and run `gradle assembleDebug`. The relative Vite base is required, and the bundle is placed at the Android asset root: the editor uses React `BrowserRouter`, so it must load at `/` (not `/index.html` or `/assets/dafit/index.html`) or its routes render empty. Android serves the root and static assets through `WebViewAssetLoader` at `https://appassets.androidplatform.net`, not `file://`.
 
 ## Install
 

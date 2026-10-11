@@ -47,7 +47,7 @@ jobs:
           cd "$source_dir"
           npm ci --include=dev --legacy-peer-deps --no-audit --no-fund
           npm ls vite @types/node @types/web-bluetooth typescript
-          npm run build
+          npm run build -- --base=./
       - name: Bundle frontend and native BLE adapter
         run: |
           mkdir -p app/src/main/assets/dafit

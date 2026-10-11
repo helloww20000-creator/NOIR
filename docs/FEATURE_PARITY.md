@@ -51,8 +51,12 @@
 ## Build and hardware evidence
 
 - Existing successful upstream workflow run: [Build NOIR Android APK](https://github.com/helloww20000-creator/NOIR/actions/runs/38124315525), source app revision `06d28dbfed86f352946338bf1c092a31869a309c`, artifact `NOIR-debug-apk` (downloaded and verified present, 4,074,269 bytes).
-- That workflow fetched the website from an unpinned upstream default branch. It is not a reproducible provenance guarantee. The rebuild workflow now fetches the exact source commit above and uses the committed `vendor/dafit-canvas/package-lock.json`; local frontend `npm ci`, typecheck/build, and lint have passed. The new Android workflow still needs a run on the updated branch.
-- No emulator or physical NSW-309 connection has been performed in this environment.
+- That workflow fetched the website from an unpinned upstream default branch. It is not a reproducible provenance guarantee. The local rebuild branch changes the workflow to fetch the exact source commit above and use the committed `vendor/dafit-canvas/package-lock.json`.
+- Local frontend validation passed: `npm ci --include=dev --legacy-peer-deps --no-audit --no-fund`, `npm run build` (TypeScript `tsc -b` plus Vite), and `npm run lint`. Vite emitted a non-fatal large-chunk warning (733.47 KB JS before gzip).
+- Local Android validation passed with JDK 17, Gradle 8.9, Android platform 35 and build-tools 35.0.0: `gradle assembleDebug --stacktrace` completed successfully. `gradle testDebugUnitTest --stacktrace` also completed, but **the repository contains no unit-test sources**, so this is not protocol/adapter test coverage.
+- Verified APK: `app/build/outputs/apk/debug/app-debug.apk`, 3.9 MiB, SHA-256 `580a510adb0a84a271481d75dc2044a1d719c46e3aa23f629de33070a5f0804f`. `aapt dump badging` reports package `com.noir.companion.dev`, versionCode 4/versionName `0.2.1-dev`, min SDK 26 and target SDK 35. APK inspection confirms local `assets/dafit/index.html`, `noir-ble-shim.js`, and hashed CSS/JS bundles; `apksigner verify` passed (debug key, APK Signature Scheme v2).
+- The dedicated branch commit could not be pushed: GitHub rejected it because the configured GitHub App lacks the `workflows` permission to create/update `.github/workflows/android.yml`. No updated-branch GitHub Actions run or hosted artifact link exists yet. The local APK above is the verified build artifact; the existing run cited above is from the older, unpinned workflow.
+- No Android emulator/ADB or physical NSW-309 connection was available; no app launch or watch behavior has been tested.
 - Package ID is `com.noir.companion.dev` on the rebuild branch, so it installs alongside the prior `com.noir.companion` package rather than updating it. Debug APK is not a production-signed release.
 
 ## Physical device test checklist (required before declaring watch features supported)

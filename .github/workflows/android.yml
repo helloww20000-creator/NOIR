@@ -30,6 +30,31 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: /tmp/dafit-canvas/package-lock.json
+      - name: Fetch and build DaFit Canvas source
+        run: |
+          git clone --depth 1 https://github.com/e-labInnovations/DaFit-Canvas.git /tmp/dafit-canvas
+          cd /tmp/dafit-canvas
+          npm ci
+          npm run build
+          mkdir -p "$GITHUB_WORKSPACE/app/src/main/assets/dafit"
+          cp -R dist/. "$GITHUB_WORKSPACE/app/src/main/assets/dafit/"
+          cp "$GITHUB_WORKSPACE/app/src/main/assets/noir-ble-shim.js" "$GITHUB_WORKSPACE/app/src/main/assets/dafit/noir-ble-shim.js"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("/tmp/dafit-canvas/dist/index.html")
+          html = p.read_text()
+          tag = '<script src="./noir-ble-shim.js"></script>'
+          if tag not in html:
+              html = html.replace('</head>', tag + '</head>')
+          p.write_text(html)
+          Path("$GITHUB_WORKSPACE/app/src/main/assets/dafit/index.html").write_text(html)
+          PY
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
       - name: Upload debug APK
